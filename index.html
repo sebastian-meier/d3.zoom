@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<style>
+
+body {
+  font: 10px sans-serif;
+}
+
+.layer{
+  -webkit-transition: opacity .3s ease-in-out;
+  -moz-transition: opacity .3s ease-in-out;
+  -ms-transition: opacity .3s ease-in-out;
+  -o-transition: opacity .3s ease-in-out;
+  transition: opacity .3s ease-in-out;
+}
+
+.bar rect {
+  fill: steelblue;
+  shape-rendering: crispEdges;
+}
+
+.bar text {
+  fill: #fff;
+}
+
+.axis path, .axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+rect.pane {
+  cursor: move;
+  fill: none;
+  pointer-events: all;
+}
+
+#container{
+  margin:15px;
+}
+
+#svg{
+  width:100%;
+}
+
+</style>
+<body>
+<div id="container"><svg id="svg" preserveAspectRatio="xMinYMin meet"></svg></div>
+<script src="lib/d3.min.js"></script>
+<script>
+
+// A formatter for counts.
+var formatCount = d3.format(",.0f");
+
+/*
+  
+  Old Faithful Data set
+  http://www.stat.cmu.edu/~larry/all-of-statistics/=data/faithful.dat
+
+  Reference:
+  Azzalini, A. and Bowman, A. W. (1990) A look at some data on the Old Faithful geyser. Applied Statistics 39, 357–365.
+  Venables, W. N. and Ripley, B. D. (2002) Modern Applied Statistics with S. Fourth edition. Springer.
+
+*/
+
+var values = [],
+  x,xAxis,svg,min,max,
+  y=[],
+  margin=40,
+  width=parseInt(d3.select("#container").style("width")),
+  fullheight=parseInt(d3.select("#container").style("width"))/2,
+  height=parseInt(d3.select("#container").style("width"))/2-margin,
+  bins = 20, 
+  maxZoom = 5;
+
+svg = d3.select("#svg")
+  .attr("width", width)
+  .attr("height", fullheight)
+  .append("g");
+
+var zoom = d3.behavior.zoom()
+  .scaleExtent([1,maxZoom])
+  .on("zoom", draw);
+
+x = d3.scale.linear()
+  .range([0, width]);
+
+xAxis = d3.svg.axis()
+  .scale(x)
+  .orient("bottom");
+
+svg.append("g")
+  .attr("class", "x axis")
+  .attr("transform", "translate(0," + (height+5) + ")");
+
+d3.csv("data.csv", function(error, idata) {
+  idata.forEach(function(d) {
+    values.push(parseFloat(d.eruptions));
+  });
+
+  x.domain(d3.extent(values))
+  zoom.x(x);
+
+  min = d3.min(values);
+  max = d3.max(values);
+
+  var zData = [];
+  for(var z = 0; z<maxZoom; z++){
+    zData.push(z);
+  }
+
+  svg.selectAll(".layer")
+    .data(zData)
+  .enter().append("g")
+    .attr("class", "layer")
+    .attr("style", "opacity:0;")
+    .attr("id", function(d){ return "z-"+d; });
+
+  //Repeat from here after update
+  for(var z = 0; z<maxZoom; z++){
+    var layer = svg.select("#z-"+z);
+    if(z==0){layer.attr("style", "opacity:1;");}
+
+    var zbins = bins * Math.pow(2,z);
+    var binsize = (max-min)/(zbins);
+    var data = []; for(var i = 0; i<zbins; i++){data.push({c:0, x:(binsize*i + min)});}
+    values.forEach(function(d){
+      var c = (d == max) ? (zbins-1) : Math.floor((d-min)/binsize);
+      data[c].c++;
+    });
+
+    var y = d3.scale.linear()
+      .domain([0, d3.max(data, function(d) { return d.c; })])
+      .range([height, 0]);
+
+    if(z==0){
+      svg.append("clipPath")
+        .attr("id", "clip")
+      .append("rect")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", width)
+        .attr("height", height);
+
+      svg.selectAll(".layer").attr("clip-path", "url(#clip)");
+    }
+
+    var bar = layer.selectAll(".bar")
+      .data(data)
+    .enter().append("g")
+      .attr("class", "bar")
+      .attr("data-y", function(d){ return y(d.c); })
+      .attr("transform", function(d) { return "translate(" + x(d.x) + "," + y(d.c) + ")"; });
+
+    bar.append("rect")
+        .attr("x", 1)
+        .attr("width", x(binsize+min)-1)
+        .attr("height", function(d) { return height - y(d.c); });
+
+    bar.append("text")
+        .attr("dy", function(d){ return ((height-y(d.c))<25) ? "-.75em" : ".75em"; })
+        .attr("style", function(d){ return ((height-y(d.c))<25) ? "fill:#000;" : "fill:#fff;"; })
+        .attr("y", 6)
+        .attr("x", x(binsize+min) / 2)
+        .attr("text-anchor", "middle")
+        .text(function(d) { return (d.c>=1) ? formatCount(d.c) : ""; });
+  }
+
+  svg.append("rect")
+    .attr("class", "pane")
+    .attr("width", width)
+    .attr("height", height)
+    .call(zoom);
+
+  draw();
+
+});
+
+d3.select(window).on('resize', resize); 
+
+function resize() {
+    // update width
+    width = parseInt(d3.select('#container').style('width'), 10);
+   
+    //Dynamic Y Function ?
+    //fullheight=parseInt(d3.select("#container").style("width"))/2;
+    //height=parseInt(d3.select("#container").style("width"))/2-margin;
+
+    // reset x range
+    x.range([0, width]);
+
+    d3.select("#clip rect")
+      .attr("width", width);
+
+    d3.select(".pane")
+      .attr("width", width);
+
+    // do the actual resize...
+
+    draw();
+}
+
+function draw() {
+  var dmax = x.domain()[1];
+  var dmin = x.domain()[0];
+  var dd = dmax - dmin;
+
+  /*if(dmax>max && dmin<min){
+    dmax = max;
+    dmin = min;
+  }else if(dmax>max){
+    dmax = max;
+    dmin = dmax-dd;
+  }else if(dmin<min){
+    dmin = min;
+    dmax = dmin+dd;
+  }*/
+
+  x.domain([dmin, dmax]);
+
+  svg.select("g.x.axis").call(xAxis);
+
+  if(d3.event !== null && d3.event !== undefined){
+    
+    /*
+
+      0 = x.domain()[0]
+      width = x.domain()[1]
+
+      d3.event.sourceEvent.x
+      d3.event.sourceEvent.y
+
+    */
+
+    if(d3.event.scale !== null && d3.event.scale !== undefined){
+      d3.selectAll(".layer").attr("style", "opacity:0;");
+      d3.select("#z-"+(Math.round(d3.event.scale)-1)).attr("style", "opacity:1;");
+    }
+  }
+
+
+  for(var z = 0; z<maxZoom; z++){
+    (function(z){
+
+      var layer = svg.select("#z-"+z);
+
+      var zbins = bins * Math.pow(2,z);
+      var binsize = (max-min)/(zbins);
+
+      var bar = layer.selectAll(".bar")
+        .attr("transform", function(d) { return "translate(" + x(d.x) + "," + d3.select(this).attr("data-y") + ")"; });
+
+      bar.selectAll("rect")
+          .attr("width", (x(binsize) - x(0))-1);
+
+      bar.selectAll("text")
+          .attr("x", (x(binsize) - x(0)) / 2);
+
+    })(z);
+  }
+
+}
+
+</script>
